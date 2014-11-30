@@ -1,14 +1,17 @@
 package music
 
+import plotting.PlotIt
+
 import javax.sound.sampled.AudioSystem
 import java.io.File
 import javax.sound.sampled.SourceDataLine
 import javax.sound.sampled.DataLine
-import javax.sound.sampled.AudioFormat
+import javax.sound.sampled.{ AudioFormat, AudioInputStream }
+import java.io.ByteArrayOutputStream
 import math._
 // Starting place/inspiration: http://vigtig.it/blog/blog/2011/04/12/programming-music/#sthash.XUKwXLWw.dpuf
 object Music {
-  val SAMPLE_RATE = 96000f
+  val SAMPLE_RATE = 64000f
   //96khz for audiophiles 
   val BYTE_BUFFER_SIZE = 1000
   val buf: Array[Byte] = Array.ofDim(BYTE_BUFFER_SIZE)
@@ -26,21 +29,90 @@ object Music {
   val (c, d, e, f, g, a, gdeep) = (key(52), key(54), key(56), key(57), key(59), key(61), key(47))
 
   def main(args: Array[String]) {
+    val samp = loadSample("data/Warship alarm.wav")
+    val samp2 = loadSample("data/Death 1.wav")
     println(af)
     sdl.open(af)
+    val organ = OverlayInst(Oscillator(sin), Vector(1, 2, 4, 8, 16))
+    val organSamp = OverlayInst(samp, Vector(1, 2, 4, 8, 16))
+    
+    val distBound = .3
+    def distFilt(d: Double) = { 2.0 * (if (d > distBound) distBound else if (d < -distBound) -distBound else d) }
+
+    val distOrgan = FilterInst(organ, distFilt)
+    val distOrganSamp = FilterInst(organSamp, distFilt)
+    val distSamp = FilterInst(organ, distFilt)
+    val modDistOrgan = ModInst(distOrgan, Oscillator(sine), 16)
+    val modSaw = ModInst(Oscillator(sine), Oscillator(sine), 64)
 
     sdl.start()
+    var mfr = MiniFr()
     var fr = FrereJacques()
-    val modSaw = ModInst(Oscillator(saw),Oscillator(sine),64)
-    fr.play(OverlayInst(modSaw,Vector(1,2)))
-    fr.play(OverlayInst(Oscillator(square),Vector(1,2,4,8,16)))
+    
+    fr.play(distOrganSamp)
+    mfr.play(distOrgan)
+    mfr.play(modDistOrgan)
+    /*
     fr.play(Oscillator(saw))
     fr.play(Oscillator(square))
     fr.play(Oscillator(sine))
+    * 
+    */
     sdl.drain()
     sdl.stop()
     sdl.close()
 
+  }
+
+  def loadSample(path: String) = {
+    import javax.sound.sampled._
+
+    val stream = AudioSystem.getAudioInputStream(new File(path));
+    val fmt = stream.getFormat
+    val sampleRate = fmt.getSampleRate
+    println(s"Loading ${path}, format=${fmt} frameLength=${stream.getFrameLength}")
+
+    val bos = new ByteArrayOutputStream();
+    val byteArray = readAudioFileData(stream)
+    println(s"Got array of ${byteArray.size} bytes")
+
+    val wrapped = java.nio.ByteBuffer.wrap(byteArray); // big-endian by default
+    //val num = wrapped.getShort(); // 1
+    val doubles = audioToDoubles(byteArray, fmt)
+
+    //println(s"Got doubles, length ${doubles.size}, max ${doubles.max}, min ${doubles.min}")
+    //plotting.PlotIt.plot(audioToDoubles(byteArray,fmt))
+    SampleInst(doubles, 300, fmt.getSampleRate)
+  }
+
+  def audioToDoubles(buffer: Array[Byte], format: AudioFormat) = {
+
+    val ints = format match {
+      case f if (f.getFrameSize == 2 && f.isBigEndian() == false) => {
+        assert(f.getFrameSize % 2 == 0)
+        for (i <- 0 until buffer.size / 2) yield {
+          val offset = 2 * i
+          (buffer(offset) & 0xFF) | (buffer(offset + 1) << 8);
+        }
+      }
+    }
+    val max = ints.max.toDouble
+    ints.map(_.toDouble / max)
+
+  }
+
+  def readAudioFileData(ais: AudioInputStream) = {
+    var data = Array.empty[Byte]
+    val baout = new ByteArrayOutputStream()
+
+    val buffer = new Array[Byte](4096);
+    var c = 0
+    while ({ c = ais.read(buffer, 0, buffer.length); c != -1 }) {
+      baout.write(buffer, 0, c);
+    }
+    ais.close();
+    baout.close();
+    baout.toByteArray();
   }
 }
 
@@ -52,10 +124,24 @@ trait Instrument {
   def apply(elem: Int, hertz: Double, sampleRate: Double): Double
 }
 
+case class SampleInst(waveForm: IndexedSeq[Double], encodeHz: Double, encodeSampleRate: Double) extends Instrument {
+  // If the hz and samplerate are matches, then just march through
+  def apply(elem: Int, hertz: Double, sampleRate: Double): Double = {
+    val idx = elem * (hertz / encodeHz) * (encodeSampleRate / sampleRate)
+    waveForm((idx % waveForm.size).toInt)
+  }
+}
+
 case class Oscillator(of: Function1[Double, Double]) extends Instrument {
   def apply(elem: Int, hertz: Double, sampleRate: Double): Double = {
     val angle = elem.toDouble / (sampleRate / hertz) * 2.0 * Pi
     of(angle)
+  }
+}
+
+case class FilterInst(inner: Instrument, filt: Function1[Double, Double]) extends Instrument {
+  def apply(elem: Int, hertz: Double, sampleRate: Double) = {
+    filt(inner(elem, hertz, sampleRate))
   }
 }
 
@@ -66,13 +152,30 @@ case class OverlayInst(inner: Instrument, downs: IndexedSeq[Int]) extends Instru
     for (d <- downs) {
       out = out + inner(elem, hertz / d, sampleRate)
     }
-    out/downs.size
+    out / downs.size
   }
 }
 
 case class ModInst(main: Instrument, mod: Instrument, modHz: Double) extends Instrument {
   def apply(elem: Int, hertz: Double, sampleRate: Double) = {
-    main.apply(elem,hertz,sampleRate)*mod(elem,modHz,sampleRate)
+    main.apply(elem, hertz, sampleRate) * mod(elem, modHz, sampleRate)
+  }
+}
+
+case class MiniFr() extends Phrase {
+  import Music._
+
+  val tones = Vector(
+    Tone(gdeep),
+    Tone(c),
+    Tone(d),
+    Tone(e),
+    Tone(f),
+    Tone(g),
+    Tone(a))
+
+  def play(osc: Instrument) = {
+    tones.foreach(_.play(osc))
   }
 }
 

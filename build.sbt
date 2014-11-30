@@ -1,8 +1,8 @@
-name := "cl-scala-games"
+name := "scala-games-sandbox"
 
 version := "0.01"
 
-organization := "org.christopherglucas"
+organization := "org.panglossolalia"
 
 scalaVersion := "2.11.2"
 
