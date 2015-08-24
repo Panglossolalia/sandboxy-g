@@ -17,7 +17,7 @@ object Music {
   val buf: Array[Byte] = Array.ofDim(BYTE_BUFFER_SIZE)
   val af = new AudioFormat(SAMPLE_RATE, 8, 1, true, false)
   val sdl = AudioSystem.getSourceDataLine(af)
-
+  val tdl = AudioSystem.getTargetDataLine(af)
   //Oscillators 
   def square(d: Double): Double = if (sin(d) < 0) -1 else 1
   def sine(d: Double): Double = sin(d)
@@ -26,16 +26,37 @@ object Music {
   //Returns hertz for nth key 
   def key(n: Int): Int = (440f * pow((pow(2, 1 / 12f)), n - 49 - 12)).toInt
 
-  val (c, d, e, f, g, a, gdeep) = (key(52), key(54), key(56), key(57), key(59), key(61), key(47))
+  val (b, bHigh, chigh, fsharp, dhigh,
+    c, d, e, f, g, a, gdeep) = (
+    key(51), key(63), key(64), key(58), key(66),
+    key(52), key(54), key(56), key(57), key(59), key(61), key(47))
 
   def main(args: Array[String]) {
+    squirrel
+  }
+
+  def squirrel = {
+    val dl = sdl
+    println(af)
+    dl.open(af)
+    dl.start()
+    val hbd = HappyBirthday()
+    val sqSamp = loadSquirrel()
+    hbd.play(sqSamp)
+    dl.drain()
+    dl.stop()
+    dl.close()
+  }
+
+  def demo = {
     val samp = loadSample("data/Warship alarm.wav")
     val samp2 = loadSample("data/Death 1.wav")
+
     println(af)
     sdl.open(af)
     val organ = OverlayInst(Oscillator(sin), Vector(1, 2, 4, 8, 16))
     val organSamp = OverlayInst(samp, Vector(1, 2, 4, 8, 16))
-    
+
     val distBound = .3
     def distFilt(d: Double) = { 2.0 * (if (d > distBound) distBound else if (d < -distBound) -distBound else d) }
 
@@ -48,8 +69,8 @@ object Music {
     sdl.start()
     var mfr = MiniFr()
     var fr = FrereJacques()
-    
-    fr.play(distOrganSamp)
+
+    fr.play(samp2)
     mfr.play(distOrgan)
     mfr.play(modDistOrgan)
     /*
@@ -64,7 +85,12 @@ object Music {
 
   }
 
-  def loadSample(path: String) = {
+  def loadSquirrel() = {
+    val sq = loadSample("data/kuksand3quaas18s.wav", 500)
+    sq.range(.2, .5)
+  }
+
+  def loadSample(path: String, hz: Int = 300) = {
     import javax.sound.sampled._
 
     val stream = AudioSystem.getAudioInputStream(new File(path));
@@ -130,6 +156,14 @@ case class SampleInst(waveForm: IndexedSeq[Double], encodeHz: Double, encodeSamp
     val idx = elem * (hertz / encodeHz) * (encodeSampleRate / sampleRate)
     waveForm((idx % waveForm.size).toInt)
   }
+
+  def range(start: Double, end: Double): SampleInst = {
+    val startI = (start * encodeSampleRate).toInt
+    val endI = (end * encodeSampleRate).toInt
+    val newWav = waveForm.slice(startI, endI)
+    SampleInst(newWav, encodeHz, encodeSampleRate)
+  }
+
 }
 
 case class Oscillator(of: Function1[Double, Double]) extends Instrument {
@@ -173,6 +207,28 @@ case class MiniFr() extends Phrase {
     Tone(f),
     Tone(g),
     Tone(a))
+
+  def play(osc: Instrument) = {
+    tones.foreach(_.play(osc))
+  }
+}
+
+case class HappyBirthday() extends Phrase {
+  import Music._
+  val s = 1;
+  //
+  val hz = Vector(
+    d, d, e, d, g, fsharp, s, s,
+    d, d, e, d, a, g, s, s,
+    d, d, dhigh, b, g, fsharp, e, s, s,
+    chigh, chigh, b, g, a, g)
+
+  /*
+  val hz = Vector(
+      c,c,d,c,f,e,s,s,
+      c,c,d,c,g,f,s,s,
+      c,c,chigh,a,f,e,d);*/
+  val tones = hz.map(Tone(_))
 
   def play(osc: Instrument) = {
     tones.foreach(_.play(osc))
