@@ -24,6 +24,8 @@ import scala.language.implicitConversions
  *  - turntable.fm avatars: https://www.google.com/search?q=turntable.fm+avatars&source=lnms&tbm=isch
  */
 object Critter {
+  
+  val hCenter = 250.0
 
   def main(args: Array[String]): Unit = {
     import Color._
@@ -43,13 +45,13 @@ object Critter {
     val eyeDim = (69.0 / 2, 100.0 / 2)
     val pupilProp = .667
     val eyeSep = 186.0
-    val leftEye = new NestedEye((headCenter._1 - eyeSep / 2, headCenter._2), eyeDim, Vector((WHITE, 1.0), (pupilColor, pupilProp)))
-    val rightEye = new NestedEye((headCenter._1 + eyeSep / 2, headCenter._2), eyeDim, Vector((WHITE, 1.0), (pupilColor, pupilProp)))
-    val mouth = new Mouth((headCenter._1,headCenter._2+66.7+10),(40,40),pupilColor)
+    // actual octocat's eyes are slightly crossed
+    val eyes2 = new NEPair(headCenter._2, eyeSep, eyeDim,Vector((WHITE, 1.0), (pupilColor, pupilProp)))
+    // mouth is less than 180 degrees in actual octocat
+    val mouth = new Mouth((headCenter._1,headCenter._2+66.7),(40,40),pupilColor)
     val nose = new Nose((headCenter._1,headCenter._2+43),(8,8),pupilColor)
-    //val mouth = new Mouth((headCenter._1,headCenter._2+66.7+10),(80,40),pupilColor)
-    println(s"lec: ${leftEye.center}, rec: ${rightEye.center}, mc: ${mouth.center}")
-    new Critter(Vector(leftEye, rightEye,mouth,nose))
+    val head = new RrHead(headCenter._2+20,(360,200),skinColor) // size/shape are placeholders
+    new Critter(Vector(head,mouth,nose,eyes2))
   }
 
 }
@@ -98,12 +100,37 @@ class NestedEye(center: (Double, Double), radii: (Double, Double), colorRads: In
   }
 }
 
+class NEPair(y:Double, separation: Double, radii: (Double, Double), colorRads: IndexedSeq[(Color, Double)]) extends CritterPart {
+  val eyes = Vector.tabulate(2)(i => {
+    val sepDelta = separation* (i.toDouble - 1.0/2) 
+    new NestedEye((Critter.hCenter+sepDelta,y),radii,colorRads)
+  })
+  def paintMe(g2: Graphics2D) = {
+    eyes.foreach(e => e.paintMe(g2))
+  }
+  def center = (Critter.hCenter,y)
+  def size = ((radii._1+separation)*2,radii._2*2)
+}
+
+class RrHead(y:Double, val size:(Double,Double), color: Color) extends CritterPart {
+
+  
+  def paintMe(g2: Graphics2D) = {
+    g2.setColor(color)
+    g2.fillRoundRect(Critter.hCenter-size._1/2, y-size._2/2, size._1, size._2, size._1/3, size._2/3)
+  }
+  
+  def center = (Critter.hCenter,y)
+  
+}
+
+
 // Note that the center is the cetner of the hypothetical circle, so for a smiley mouth it's actually the top
 class Mouth(val center: (Double, Double), val size: (Double, Double), color: Color) extends CritterPart {
 
   def paintMe(g2: Graphics2D) = {
     val os = g2.getStroke
-    g2.setStroke(new BasicStroke(5,1,1))
+    g2.setStroke(new BasicStroke(7,1,1))
     g2.setColor(color)
     g2.drawArc(center._1 - (size._1 / 2), center._2 - (size._2 / 2), size._1, size._2, 180, 180)
     g2.setStroke(os)
